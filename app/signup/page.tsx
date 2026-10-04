@@ -50,6 +50,10 @@ export default function SignupPage() {
         "kme_user",
         JSON.stringify(result.user)
       );
+      localStorage.setItem(
+  "kme_token",
+  result.access_token
+);
 
       localStorage.setItem(
         "kme_session",

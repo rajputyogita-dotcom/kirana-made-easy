@@ -54,9 +54,19 @@ export default function LoginPage() {
       );
 
       localStorage.setItem(
-        "kme_session",
-        "true"
-      );
+  "kme_user",
+  JSON.stringify(result.user)
+);
+
+localStorage.setItem(
+  "kme_token",
+  result.access_token
+);
+
+localStorage.setItem(
+  "kme_session",
+  "true"
+);
 
       const setupDone =
         localStorage.getItem("kme_setup_complete");

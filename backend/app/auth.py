@@ -1,4 +1,9 @@
+import os
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -7,7 +12,11 @@ from app.database import SessionLocal
 from app.models import User
 
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"],
+)
+
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -15,8 +24,22 @@ pwd_context = CryptContext(
 )
 
 
+security = HTTPBearer()
+
+
+SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY",
+    "kirana-made-easy-development-secret-change-this",
+)
+
+ALGORITHM = "HS256"
+
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+
+
 def get_db():
     db = SessionLocal()
+
     try:
         yield db
     finally:
@@ -34,8 +57,70 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def create_access_token(user_id: int):
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+
+    payload = {
+        "sub": str(user_id),
+        "exp": expire,
+    }
+
+    return jwt.encode(
+        payload,
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    token = credentials.credentials
+
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+        )
+
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication token.",
+            )
+
+        user = (
+            db.query(User)
+            .filter(User.id == int(user_id))
+            .first()
+        )
+
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="User account not found.",
+            )
+
+        return user
+
+    except (JWTError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired authentication token.",
+        )
+
+
 @router.post("/signup")
-def signup(data: SignupRequest, db: Session = Depends(get_db)):
+def signup(
+    data: SignupRequest,
+    db: Session = Depends(get_db),
+):
     existing_user = (
         db.query(User)
         .filter(User.email == data.email.lower())
@@ -57,15 +142,21 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
     user = User(
         name=data.name.strip(),
         email=data.email.lower(),
-        password_hash=pwd_context.hash(data.password),
+        password_hash=pwd_context.hash(
+            data.password
+        ),
     )
 
     db.add(user)
     db.commit()
     db.refresh(user)
 
+    token = create_access_token(user.id)
+
     return {
         "message": "Account created successfully.",
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": user.id,
             "name": user.name,
@@ -75,7 +166,10 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(data: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    data: LoginRequest,
+    db: Session = Depends(get_db),
+):
     user = (
         db.query(User)
         .filter(User.email == data.email.lower())
@@ -91,8 +185,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             detail="Invalid email or password.",
         )
 
+    token = create_access_token(user.id)
+
     return {
         "message": "Login successful.",
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": user.id,
             "name": user.name,
