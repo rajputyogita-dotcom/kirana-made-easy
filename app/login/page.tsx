@@ -157,7 +157,7 @@ export default function LoginPage() {
             </div>
 
             <p className="text-sm font-bold text-[#7C5CFC]">
-              WELCOME BACK
+              WELCOME BACK ✨
             </p>
 
             <h2 className="mt-2 text-3xl font-black">
