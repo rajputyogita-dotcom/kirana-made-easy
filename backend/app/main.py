@@ -6,7 +6,10 @@ from app.bills import router as bills_router
 from app.products import router as products_router
 from app.assistant import router as assistant_router
 from app.notifications import router as notifications_router
-
+from app.auth import router as auth_router
+from app.database import Base, engine
+from app import models
+Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Kirana Made Easy API")
 
 app.add_middleware(
@@ -25,6 +28,7 @@ app.include_router(sales_router)
 app.include_router(credits_router)
 app.include_router(bills_router)
 app.include_router(notifications_router)
+app.include_router(auth_router)
 app.include_router(assistant_router)
 @app.get("/")
 def root():

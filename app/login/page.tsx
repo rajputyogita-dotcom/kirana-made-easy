@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { login } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,79 +15,65 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const account =
-      localStorage.getItem("kme_account");
+    const user = localStorage.getItem("kme_user");
 
-    if (account) {
+    if (user) {
       try {
-        const parsed = JSON.parse(account);
+        const parsed = JSON.parse(user);
         setEmail(parsed.email || "");
       } catch {}
     }
   }, []);
 
-  function handleLogin(
-    e: React.FormEvent
-  ) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
 
     setError("");
 
-    const saved =
-      localStorage.getItem("kme_account");
-
-    if (!saved) {
-      setError(
-        "No account found. Please create an account first."
-      );
+    if (!email.trim()) {
+      setError("Please enter your email.");
       return;
     }
 
+    if (!password) {
+      setError("Please enter your password.");
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const account =
-        JSON.parse(saved);
+      const result = await login(
+        email.trim().toLowerCase(),
+        password
+      );
 
-      if (
-        email.trim().toLowerCase() !==
-        account.email
-      ) {
-        setError(
-          "Email does not match the registered account."
-        );
-        return;
-      }
-
-      if (password !== account.password) {
-        setError(
-          "Incorrect password."
-        );
-        return;
-      }
-
-      setLoading(true);
+      localStorage.setItem(
+        "kme_user",
+        JSON.stringify(result.user)
+      );
 
       localStorage.setItem(
         "kme_session",
         "true"
       );
 
-      setTimeout(() => {
-        const setupDone =
-          localStorage.getItem(
-            "kme_setup_complete"
-          );
+      const setupDone =
+        localStorage.getItem("kme_setup_complete");
 
-        if (setupDone === "true") {
-          router.push("/dashboard");
-        } else {
-          router.push("/setup");
-        }
-      }, 400);
-
-    } catch {
+      if (setupDone === "true") {
+        router.push("/dashboard");
+      } else {
+        router.push("/setup");
+      }
+    } catch (err) {
       setError(
-        "Your account data could not be read. Please sign up again."
+        err instanceof Error
+          ? err.message
+          : "Invalid email or password."
       );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -223,14 +210,17 @@ export default function LoginPage() {
 
             <div className="my-7 flex items-center gap-3">
               <div className="h-px flex-1 bg-[#E8E1F1]" />
+
               <span className="text-xs text-[#A19BAA]">
                 OR
               </span>
+
               <div className="h-px flex-1 bg-[#E8E1F1]" />
             </div>
 
             <p className="text-center text-sm text-[#777187]">
               New to Kirana Made Easy?{" "}
+
               <Link
                 href="/signup"
                 className="font-black text-[#6B4FE0] hover:underline"

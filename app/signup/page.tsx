@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { signup } from "@/lib/api";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function handleSignup(e: React.FormEvent) {
+  async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
 
     setError("");
@@ -38,26 +39,33 @@ export default function SignupPage() {
 
     setLoading(true);
 
-    const account = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      password,
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      const result = await signup(
+        name.trim(),
+        email.trim().toLowerCase(),
+        password
+      );
 
-    localStorage.setItem(
-      "kme_account",
-      JSON.stringify(account)
-    );
+      localStorage.setItem(
+        "kme_user",
+        JSON.stringify(result.user)
+      );
 
-    localStorage.setItem(
-      "kme_session",
-      "true"
-    );
+      localStorage.setItem(
+        "kme_session",
+        "true"
+      );
 
-    setTimeout(() => {
       router.push("/setup");
-    }, 400);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to create your account."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
