@@ -3,7 +3,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import Bill
+from app.models import Bill, User
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/bills", tags=["Bills"])
 
@@ -23,9 +24,13 @@ class BillCreate(BaseModel):
 
 
 @router.get("/")
-def get_bills(db: Session = Depends(get_db)):
+def get_bills(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     bills = (
         db.query(Bill)
+        .filter(Bill.user_id == current_user.id)
         .order_by(Bill.id.desc())
         .all()
     )
@@ -44,24 +49,26 @@ def get_bills(db: Session = Depends(get_db)):
 @router.post("/")
 def create_bill(
     bill: BillCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if bill.total_amount <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Bill amount must be greater than 0"
+            detail="Bill amount must be greater than 0",
         )
 
     if bill.payment_status not in ["paid", "pending"]:
         raise HTTPException(
             status_code=400,
-            detail="Payment status must be paid or pending"
+            detail="Payment status must be paid or pending",
         )
 
     new_bill = Bill(
+        user_id=current_user.id,
         customer_name=bill.customer_name,
         total_amount=bill.total_amount,
-        payment_status=bill.payment_status
+        payment_status=bill.payment_status,
     )
 
     db.add(new_bill)
@@ -75,5 +82,5 @@ def create_bill(
             "customer_name": new_bill.customer_name,
             "total_amount": new_bill.total_amount,
             "payment_status": new_bill.payment_status,
-        }
+        },
     }

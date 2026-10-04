@@ -3,13 +3,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import Product, Notification
-router = APIRouter(prefix="/products", tags=["Inventory"])
+from app.models import Product, Notification, User
+from app.auth import get_current_user
 
 
-# Database session
+router = APIRouter(
+    prefix="/products",
+    tags=["Inventory"],
+)
+
+
 def get_db():
     db = SessionLocal()
+
     try:
         yield db
     finally:
@@ -24,10 +30,17 @@ def is_low_stock(product):
     return product.stock < product.minimum_stock
 
 
-# Get all products
+# Get all products for the logged-in user
 @router.get("/")
-def get_products(db: Session = Depends(get_db)):
-    products = db.query(Product).all()
+def get_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    products = (
+        db.query(Product)
+        .filter(Product.user_id == current_user.id)
+        .all()
+    )
 
     return [
         {
@@ -38,16 +51,23 @@ def get_products(db: Session = Depends(get_db)):
             "minimum_stock": product.minimum_stock,
             "reorder_quantity": product.reorder_quantity,
             "price": product.price,
-            "low_stock": is_low_stock(product)
+            "low_stock": is_low_stock(product),
         }
         for product in products
     ]
 
 
-# Get low-stock products
+# Get low-stock products for the logged-in user
 @router.get("/alerts/low-stock")
-def get_low_stock_products(db: Session = Depends(get_db)):
-    products = db.query(Product).all()
+def get_low_stock_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    products = (
+        db.query(Product)
+        .filter(Product.user_id == current_user.id)
+        .all()
+    )
 
     low_stock = [
         {
@@ -57,7 +77,7 @@ def get_low_stock_products(db: Session = Depends(get_db)):
             "stock": product.stock,
             "minimum_stock": product.minimum_stock,
             "reorder_quantity": product.reorder_quantity,
-            "price": product.price
+            "price": product.price,
         }
         for product in products
         if is_low_stock(product)
@@ -65,7 +85,7 @@ def get_low_stock_products(db: Session = Depends(get_db)):
 
     return {
         "count": len(low_stock),
-        "products": low_stock
+        "products": low_stock,
     }
 
 
@@ -74,52 +94,53 @@ def get_low_stock_products(db: Session = Depends(get_db)):
 def update_stock(
     product_id: int,
     update: StockUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if update.quantity < 0:
         raise HTTPException(
             status_code=400,
-            detail="Stock quantity cannot be negative"
+            detail="Stock quantity cannot be negative",
         )
 
     product = (
         db.query(Product)
-        .filter(Product.id == product_id)
+        .filter(
+            Product.id == product_id,
+            Product.user_id == current_user.id,
+        )
         .first()
     )
 
     if not product:
         raise HTTPException(
             status_code=404,
-            detail="Product not found"
+            detail="Product not found",
         )
 
     old_stock = product.stock
 
-    # Update stock
     product.stock = update.quantity
 
     low_stock = product.stock < product.minimum_stock
 
-    # Find existing active low-stock notification
     notification = (
         db.query(Notification)
         .filter(
             Notification.product_id == product.id,
             Notification.type == "low_stock",
-            Notification.status == "active"
+            Notification.status == "active",
         )
         .first()
     )
 
-    # If stock is healthy, resolve the alert
     if not low_stock and notification:
         notification.status = "resolved"
 
-    # If stock is still low but no alert exists, create one
     elif low_stock and not notification:
         new_notification = Notification(
-            product_id=product.id,
+    user_id=current_user.id,
+    product_id=product.id,
             type="low_stock",
             title=f"Low stock: {product.name}",
             message=(
@@ -127,12 +148,11 @@ def update_stock(
                 f"Minimum stock is {product.minimum_stock}. "
                 f"Suggested restock: {product.reorder_quantity} units."
             ),
-            status="active"
+            status="active",
         )
 
         db.add(new_notification)
 
-    # Save changes
     db.commit()
     db.refresh(product)
 
@@ -143,28 +163,37 @@ def update_stock(
             "name": product.name,
             "stock": product.stock,
             "minimum_stock": product.minimum_stock,
-            "low_stock": low_stock
+            "low_stock": low_stock,
         },
         "old_stock": old_stock,
         "new_stock": product.stock,
         "low_stock": low_stock,
         "notification_resolved": (
             notification is not None and not low_stock
-        )
+        ),
     }
+
 
 # Get one product
 @router.get("/{product_id}")
 def get_product(
     product_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = (
+        db.query(Product)
+        .filter(
+            Product.id == product_id,
+            Product.user_id == current_user.id,
+        )
+        .first()
+    )
 
     if not product:
         raise HTTPException(
             status_code=404,
-            detail="Product not found"
+            detail="Product not found",
         )
 
     return {
@@ -175,5 +204,5 @@ def get_product(
         "minimum_stock": product.minimum_stock,
         "reorder_quantity": product.reorder_quantity,
         "price": product.price,
-        "low_stock": is_low_stock(product)
+        "low_stock": is_low_stock(product),
     }

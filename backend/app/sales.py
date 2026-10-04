@@ -3,7 +3,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import Product, Sale, Bill, Notification
+from app.models import Product, Sale, Bill, Notification, User
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
@@ -22,30 +23,37 @@ class SaleCreate(BaseModel):
 
 
 @router.post("/")
-def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
-
+def create_sale(
+    sale: SaleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if sale.quantity <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Quantity must be greater than 0"
+            detail="Quantity must be greater than 0",
         )
 
+    # Only allow the logged-in user to sell their own product
     product = (
         db.query(Product)
-        .filter(Product.id == sale.product_id)
+        .filter(
+            Product.id == sale.product_id,
+            Product.user_id == current_user.id,
+        )
         .first()
     )
 
     if not product:
         raise HTTPException(
             status_code=404,
-            detail="Product not found"
+            detail="Product not found",
         )
 
     if product.stock < sale.quantity:
         raise HTTPException(
             status_code=400,
-            detail=f"Not enough stock. Available: {product.stock}"
+            detail=f"Not enough stock. Available: {product.stock}",
         )
 
     # Calculate total
@@ -56,10 +64,11 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
 
     # Create sale record
     new_sale = Sale(
+        user_id=current_user.id,
         product_id=product.id,
         product_name=product.name,
         quantity=sale.quantity,
-        total_amount=total_amount
+        total_amount=total_amount,
     )
 
     db.add(new_sale)
@@ -67,10 +76,11 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
 
     # Create bill automatically
     new_bill = Bill(
-        customer_name=None,
-        total_amount=total_amount,
-        payment_status="paid"
-    )
+    user_id=current_user.id,
+    customer_name=None,
+    total_amount=total_amount,
+    payment_status="paid",
+)
 
     db.add(new_bill)
 
@@ -79,19 +89,17 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
 
     # Create or update low-stock notification
     if low_stock:
-
         existing_notification = (
             db.query(Notification)
             .filter(
                 Notification.product_id == product.id,
                 Notification.type == "low_stock",
-                Notification.status == "active"
+                Notification.status == "active",
             )
             .first()
         )
 
         if existing_notification:
-
             existing_notification.message = (
                 f"{product.name} is down to {product.stock} units. "
                 f"Minimum stock is {product.minimum_stock}. "
@@ -99,9 +107,9 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
             )
 
         else:
-
             new_notification = Notification(
-                product_id=product.id,
+    user_id=current_user.id,
+    product_id=product.id,
                 type="low_stock",
                 title=f"Low stock: {product.name}",
                 message=(
@@ -109,7 +117,7 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
                     f"Minimum stock is {product.minimum_stock}. "
                     f"Suggested restock: {product.reorder_quantity} units."
                 ),
-                status="active"
+                status="active",
             )
 
             db.add(new_notification)
@@ -122,32 +130,33 @@ def create_sale(sale: SaleCreate, db: Session = Depends(get_db)):
 
     return {
         "message": "Sale and bill created successfully",
-
         "sale": {
             "id": new_sale.id,
             "product": new_sale.product_name,
             "quantity": new_sale.quantity,
-            "total_amount": new_sale.total_amount
+            "total_amount": new_sale.total_amount,
         },
-
         "bill": {
             "id": new_bill.id,
             "total_amount": new_bill.total_amount,
-            "payment_status": new_bill.payment_status
+            "payment_status": new_bill.payment_status,
         },
-
         "remaining_stock": product.stock,
         "low_stock": low_stock,
         "minimum_stock": product.minimum_stock,
-        "reorder_quantity": product.reorder_quantity
+        "reorder_quantity": product.reorder_quantity,
     }
 
 
 @router.get("/")
-def get_sales(db: Session = Depends(get_db)):
-
+def get_sales(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Only return sales belonging to the logged-in user
     sales = (
         db.query(Sale)
+        .filter(Sale.user_id == current_user.id)
         .order_by(Sale.id.desc())
         .all()
     )
@@ -158,7 +167,7 @@ def get_sales(db: Session = Depends(get_db)):
             "product_id": sale.product_id,
             "product_name": sale.product_name,
             "quantity": sale.quantity,
-            "total_amount": sale.total_amount
+            "total_amount": sale.total_amount,
         }
         for sale in sales
     ]

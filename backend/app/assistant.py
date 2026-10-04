@@ -9,7 +9,9 @@ from app.models import (
     Bill,
     Notification,
     Credit,
+    User,
 )
+from app.auth import get_current_user
 
 router = APIRouter(
     prefix="/assistant",
@@ -34,91 +36,30 @@ class AssistantCommand(BaseModel):
 # ==================================================
 
 NUMBER_WORDS = {
-    # English
-    "zero": 0,
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-    "eleven": 11,
-    "twelve": 12,
-    "thirteen": 13,
-    "fourteen": 14,
-    "fifteen": 15,
-    "sixteen": 16,
-    "seventeen": 17,
-    "eighteen": 18,
-    "nineteen": 19,
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19,
     "twenty": 20,
 
-    # Hinglish
-    "shunya": 0,
-    "ek": 1,
-    "do": 2,
-    "teen": 3,
-    "char": 4,
-    "chaar": 4,
-    "paanch": 5,
-    "panch": 5,
-    "cheh": 6,
-    "chhe": 6,
-    "saat": 7,
-    "aath": 8,
-    "nau": 9,
-    "das": 10,
-    "gyarah": 11,
-    "barah": 12,
-    "terah": 13,
-    "chaudah": 14,
-    "pandrah": 15,
-    "solah": 16,
-    "satrah": 17,
-    "atharah": 18,
-    "unnis": 19,
-    "bees": 20,
+    "shunya": 0, "ek": 1, "do": 2, "teen": 3, "char": 4,
+    "chaar": 4, "paanch": 5, "panch": 5, "cheh": 6,
+    "chhe": 6, "saat": 7, "aath": 8, "nau": 9, "das": 10,
+    "gyarah": 11, "barah": 12, "terah": 13, "chaudah": 14,
+    "pandrah": 15, "solah": 16, "satrah": 17,
+    "atharah": 18, "unnis": 19, "bees": 20,
 
-    # Hindi
-    "शून्य": 0,
-    "एक": 1,
-    "दो": 2,
-    "तीन": 3,
-    "चार": 4,
-    "पाँच": 5,
-    "पांच": 5,
-    "छह": 6,
-    "छः": 6,
-    "सात": 7,
-    "आठ": 8,
-    "नौ": 9,
-    "दस": 10,
-    "ग्यारह": 11,
-    "बारह": 12,
-    "तेरह": 13,
-    "चौदह": 14,
-    "पंद्रह": 15,
-    "सोलह": 16,
-    "सत्रह": 17,
-    "अठारह": 18,
-    "उन्नीस": 19,
-    "बीस": 20,
+    "शून्य": 0, "एक": 1, "दो": 2, "तीन": 3, "चार": 4,
+    "पाँच": 5, "पांच": 5, "छह": 6, "छः": 6, "सात": 7,
+    "आठ": 8, "नौ": 9, "दस": 10, "ग्यारह": 11,
+    "बारह": 12, "तेरह": 13, "चौदह": 14, "पंद्रह": 15,
+    "सोलह": 16, "सत्रह": 17, "अठारह": 18,
+    "उन्नीस": 19, "बीस": 20,
 }
 
 
 def convert_number_words(text: str):
-    """
-    Converts spoken number words into numeric values.
-
-    Example:
-    'paanch Maggi aayi'
-    -> '5 Maggi aayi'
-    """
-
     words = text.split()
     converted = []
 
@@ -126,13 +67,9 @@ def convert_number_words(text: str):
         clean_word = word.strip(".,!?;:")
 
         if clean_word.lower() in NUMBER_WORDS:
-            converted.append(
-                str(NUMBER_WORDS[clean_word.lower()])
-            )
+            converted.append(str(NUMBER_WORDS[clean_word.lower()]))
         elif clean_word in NUMBER_WORDS:
-            converted.append(
-                str(NUMBER_WORDS[clean_word])
-            )
+            converted.append(str(NUMBER_WORDS[clean_word]))
         else:
             converted.append(word)
 
@@ -156,7 +93,8 @@ def find_product(command: str, products):
 @router.post("/parse")
 def parse_command(
     data: AssistantCommand,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     command = data.command.strip()
 
@@ -169,7 +107,12 @@ def parse_command(
     normalized_command = convert_number_words(command)
     command_lower = normalized_command.lower()
 
-    products = db.query(Product).all()
+    # USER-SCOPED PRODUCTS
+    products = (
+        db.query(Product)
+        .filter(Product.user_id == current_user.id)
+        .all()
+    )
 
     matched_product = find_product(
         normalized_command,
@@ -179,9 +122,7 @@ def parse_command(
     if not matched_product:
         return {
             "success": False,
-            "message": (
-                "I couldn't find a product in your command."
-            ),
+            "message": "I couldn't find a product in your command.",
             "understood_command": normalized_command
         }
 
@@ -195,47 +136,20 @@ def parse_command(
         )
     ]
 
-    # --------------------------------------------------
-    # ACTION KEYWORDS
-    # --------------------------------------------------
-
     restock_words = [
-        "aayi",
-        "aaya",
-        "aaye",
-        "aai",
-        "ai",
-        "received",
-        "purchase",
-        "purchased",
-        "added",
-        "add",
-        "stock",
-        "मिला",
-        "मिली",
-        "मिले",
-        "आयी",
-        "आई",
-        "आया",
-        "आए",
+        "aayi", "aaya", "aaye", "aai", "ai",
+        "received", "purchase", "purchased",
+        "added", "add", "stock",
+        "मिला", "मिली", "मिले", "आयी",
+        "आई", "आया", "आए",
     ]
 
     sale_words = [
-        "bik gaya",
-        "bik gayi",
-        "bik gaye",
-        "bika",
-        "biki",
-        "bik",
-        "sold",
-        "sale",
-        "sell",
-        "बेचा",
-        "बेची",
-        "बेचे",
-        "बिक गया",
-        "बिक गई",
-        "बिक गए",
+        "bik gaya", "bik gayi", "bik gaye",
+        "bika", "biki", "bik", "sold",
+        "sale", "sell",
+        "बेचा", "बेची", "बेचे",
+        "बिक गया", "बिक गई", "बिक गए",
     ]
 
     has_restock = any(
@@ -258,8 +172,7 @@ def parse_command(
         sale_quantity = numbers[1]
 
         stock_after_restock = (
-            matched_product.stock
-            + restock_quantity
+            matched_product.stock + restock_quantity
         )
 
         if sale_quantity > stock_after_restock:
@@ -273,19 +186,16 @@ def parse_command(
             }
 
         final_stock = (
-            stock_after_restock
-            - sale_quantity
+            stock_after_restock - sale_quantity
         )
 
         sale_amount = (
-            matched_product.price
-            * sale_quantity
+            matched_product.price * sale_quantity
         )
 
         return {
             "success": True,
             "intent": "multi_action",
-
             "understood_command": normalized_command,
 
             "product": {
@@ -313,12 +223,10 @@ def parse_command(
             "new_stock": final_stock,
 
             "message": (
-                f"I understood: "
-                f"+{restock_quantity} "
-                f"{matched_product.name}, "
-                f"then {sale_quantity} sold. "
-                f"Final stock: {final_stock}. "
-                f"Confirm?"
+                f"I understood: +{restock_quantity} "
+                f"{matched_product.name}, then "
+                f"{sale_quantity} sold. "
+                f"Final stock: {final_stock}. Confirm?"
             )
         }
 
@@ -344,26 +252,20 @@ def parse_command(
             return {
                 "success": False,
                 "message": (
-                    f"Not enough "
-                    f"{matched_product.name} in stock. "
-                    f"Available stock: "
+                    f"Not enough {matched_product.name} "
+                    f"in stock. Available stock: "
                     f"{matched_product.stock}"
                 ),
                 "understood_command": normalized_command
             }
 
-        new_stock = (
-            matched_product.stock - quantity
-        )
+        new_stock = matched_product.stock - quantity
 
-        total_amount = (
-            matched_product.price * quantity
-        )
+        total_amount = matched_product.price * quantity
 
         return {
             "success": True,
             "intent": "sale",
-
             "understood_command": normalized_command,
 
             "product": {
@@ -372,16 +274,13 @@ def parse_command(
             },
 
             "quantity": quantity,
-
             "current_stock": matched_product.stock,
             "new_stock": new_stock,
-
             "price": matched_product.price,
             "total_amount": total_amount,
 
             "message": (
-                f"Record sale of "
-                f"{quantity} "
+                f"Record sale of {quantity} "
                 f"{matched_product.name}?"
             )
         }
@@ -396,22 +295,18 @@ def parse_command(
             return {
                 "success": False,
                 "message": (
-                    f"How many "
-                    f"{matched_product.name} arrived?"
+                    f"How many {matched_product.name} arrived?"
                 ),
                 "understood_command": normalized_command
             }
 
         quantity = numbers[0]
 
-        new_stock = (
-            matched_product.stock + quantity
-        )
+        new_stock = matched_product.stock + quantity
 
         return {
             "success": True,
             "intent": "restock",
-
             "understood_command": normalized_command,
 
             "product": {
@@ -420,28 +315,20 @@ def parse_command(
             },
 
             "quantity": quantity,
-
             "current_stock": matched_product.stock,
             "new_stock": new_stock,
 
             "message": (
                 f"Add {quantity} "
-                f"{matched_product.name} "
-                f"to stock?"
+                f"{matched_product.name} to stock?"
             )
         }
-
-    # ==================================================
-    # UNKNOWN COMMAND
-    # ==================================================
 
     return {
         "success": False,
         "message": (
-            f"I understood "
-            f"{matched_product.name}, "
-            "but I'm not sure what action "
-            "you want."
+            f"I understood {matched_product.name}, "
+            "but I'm not sure what action you want."
         ),
         "understood_command": normalized_command
     }
@@ -460,7 +347,8 @@ class MultiActionExecute(BaseModel):
 @router.post("/execute")
 def execute_multi_action(
     data: MultiActionExecute,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if data.restock_quantity < 0:
         raise HTTPException(
@@ -474,9 +362,13 @@ def execute_multi_action(
             detail="Sale quantity must be greater than 0"
         )
 
+    # USER-SCOPED PRODUCT
     product = (
         db.query(Product)
-        .filter(Product.id == data.product_id)
+        .filter(
+            Product.id == data.product_id,
+            Product.user_id == current_user.id
+        )
         .first()
     )
 
@@ -513,6 +405,7 @@ def execute_multi_action(
     )
 
     new_sale = Sale(
+        user_id=current_user.id,
         product_id=product.id,
         product_name=product.name,
         quantity=data.sale_quantity,
@@ -521,7 +414,9 @@ def execute_multi_action(
 
     db.add(new_sale)
 
+    # USER-SCOPED BILL
     new_bill = Bill(
+        user_id=current_user.id,
         customer_name=None,
         total_amount=total_amount,
         payment_status="paid"
@@ -537,6 +432,7 @@ def execute_multi_action(
         db.query(Notification)
         .filter(
             Notification.product_id == product.id,
+            Notification.user_id == current_user.id,
             Notification.type == "low_stock",
             Notification.status == "active"
         )
@@ -557,6 +453,7 @@ def execute_multi_action(
 
         else:
             new_notification = Notification(
+                user_id=current_user.id,
                 product_id=product.id,
                 type="low_stock",
                 title=f"Low stock: {product.name}",
@@ -615,26 +512,37 @@ def execute_multi_action(
         },
 
         "low_stock": low_stock,
-
         "reorder_quantity": product.reorder_quantity
     }
 
 
 # ==================================================
-# 🧠 DUKAANAI INSIGHTS
+# DUKAANAI INSIGHTS
 # ==================================================
 
 @router.get("/insights")
 def get_dukaanai_insights(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    products = db.query(Product).all()
-    sales = db.query(Sale).all()
-    credits = db.query(Credit).all()
+    # USER-SCOPED DATA
+    products = (
+        db.query(Product)
+        .filter(Product.user_id == current_user.id)
+        .all()
+    )
 
-    # --------------------------------------------------
-    # TOTAL SALES
-    # --------------------------------------------------
+    sales = (
+        db.query(Sale)
+        .filter(Sale.user_id == current_user.id)
+        .all()
+    )
+
+    credits = (
+        db.query(Credit)
+        .filter(Credit.user_id == current_user.id)
+        .all()
+    )
 
     total_sales = sum(
         sale.total_amount
@@ -647,10 +555,6 @@ def get_dukaanai_insights(
     )
 
     transaction_count = len(sales)
-
-    # --------------------------------------------------
-    # BEST-SELLING PRODUCT
-    # --------------------------------------------------
 
     product_sales = {}
 
@@ -673,10 +577,6 @@ def get_dukaanai_insights(
             product_sales[best_product]
         )
 
-    # --------------------------------------------------
-    # LOW STOCK PRODUCTS
-    # --------------------------------------------------
-
     low_stock_products = [
         {
             "id": product.id,
@@ -689,10 +589,6 @@ def get_dukaanai_insights(
         if product.stock < product.minimum_stock
     ]
 
-    # --------------------------------------------------
-    # CREDIT / UDHAAR
-    # --------------------------------------------------
-
     credit_due = sum(
         credit.amount
         for credit in credits
@@ -704,10 +600,6 @@ def get_dukaanai_insights(
         for credit in credits
         if credit.status != "paid"
     )
-
-    # --------------------------------------------------
-    # RECOMMENDATIONS
-    # --------------------------------------------------
 
     recommendations = []
 
@@ -725,9 +617,8 @@ def get_dukaanai_insights(
 
     if best_product:
         recommendations.append(
-            f"{best_product} is your "
-            f"fastest-moving product with "
-            f"{best_product_quantity} units sold."
+            f"{best_product} is your fastest-moving "
+            f"product with {best_product_quantity} units sold."
         )
 
     if credit_due > 0:
@@ -742,10 +633,6 @@ def get_dukaanai_insights(
             "Use DukaanAI to start recording sales."
         )
 
-    # --------------------------------------------------
-    # STOCK HEALTH
-    # --------------------------------------------------
-
     healthy_stock_count = sum(
         1
         for product in products
@@ -757,10 +644,6 @@ def get_dukaanai_insights(
         "healthy_products": healthy_stock_count,
         "low_stock_products": len(low_stock_products)
     }
-
-    # --------------------------------------------------
-    # FINAL RESPONSE
-    # --------------------------------------------------
 
     return {
         "success": True,
